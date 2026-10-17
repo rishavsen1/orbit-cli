@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+# Resolve symlinks so the wrapper works when invoked via a symlink on PATH.
+target="$0"
+while [ -h "$target" ]; do
+  link="$(readlink "$target")"
+  case "$link" in
+    /*) target="$link" ;;
+    *) target="$(dirname "$target")/$link" ;;
+  esac
+done
+cd "$(dirname "$target")" || exit 1
+exec python3 ./orbit_usage.py "$@"

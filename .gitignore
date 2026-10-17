@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Orbit runtime cache (single temp file, never committed)
+orbit-usage-cache.json
