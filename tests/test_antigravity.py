@@ -39,8 +39,8 @@ class AntigravityTests(unittest.TestCase):
         self.assertIn('Gemini Models · 7 days', orbit.render({'checked_at': 'now', 'providers': {'antigravity': out}}))
 
     def test_compact_shows_every_model_family(self):
-        """Compact AG output must include both Gemini and Claude/GPT pools,
-        not only the single highest-usage window."""
+        """Compact AGY output must show both Google and Others pools with their
+        5-hour and 7-day usage, not only the single highest-usage window."""
         data = make_report(
             {'displayName': 'Gemini Models', 'buckets': [
                 {'id': 'g5', 'window': '5h', 'remaining_fraction': 0.82},
@@ -52,10 +52,11 @@ class AntigravityTests(unittest.TestCase):
         with patch('antigravity_probe.get_usage', return_value=parsed):
             out = orbit.antigravity()
         compact = orbit.compact({'checked_at': 'now', 'providers': {'antigravity': out}})
-        self.assertIn('Gemini', compact)
-        self.assertIn('Claude/GPT', compact)
-        self.assertIn('74%', compact)   # Gemini weekly 1-0.26
-        self.assertIn('47%', compact)   # Claude/GPT weekly 1-0.53
+        self.assertTrue(compact.startswith('AGY '))   # AGY, not AG
+        self.assertIn('Google', compact)              # Gemini pool labeled Google
+        self.assertIn('Others', compact)              # Claude/GPT pool labeled Others
+        self.assertIn('Google 5h 18% 7d 74%', compact)   # 5h shown for Google
+        self.assertIn('Others 5h 4% 7d 47%', compact)    # 5h shown for Others
 
     def test_missing_fraction_is_not_zero_or_full(self):
         g = {'name': 'Gemini Models', 'buckets': [

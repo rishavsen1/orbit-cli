@@ -353,17 +353,21 @@ def compact(snap):
             x = d['monthly']
             terms.append(f'kiro {x["used_credits"]:g}/{x["limit_credits"]:g} cr')
         elif name == 'antigravity':
-            # Show every model family (e.g. Gemini vs Claude/GPT), not just the
-            # single highest-usage window, so the Google/Gemini pool is not hidden.
-            families = {}
+            # Show each model family (Google/Gemini and Others) with its 5-hour
+            # and 7-day usage, so neither pool nor the 5h window is hidden.
+            short = {'Gemini Models': 'Google', 'Claude and GPT models': 'Others'}
+            families = {}  # family -> {'5h': pct, '7d': pct}
             for m in d['models']:
-                family = m['model'].split(' · ', 1)[0]
-                pct = m['used_percent']
-                if family not in families or pct > families[family]:
-                    families[family] = pct
-            short = {'Gemini Models': 'Gemini', 'Claude and GPT models': 'Claude/GPT'}
-            parts = [f'{short.get(fam, fam[:12])} {pct:.0f}%' for fam, pct in families.items()]
-            terms.append('AG ' + ' '.join(parts))
+                base, _, cadence = m['model'].partition(' · ')
+                label = short.get(base.strip(), base.strip()[:10])
+                win = '5h' if '5' in cadence else ('7d' if '7' in cadence or 'day' in cadence else cadence.strip())
+                families.setdefault(label, {})[win] = m['used_percent']
+            parts = []
+            for label, wins in families.items():
+                seg = ' '.join(f'{w} {wins[w]:.0f}%' for w in ('5h', '7d') if w in wins)
+                extra = ' '.join(f'{w} {p:.0f}%' for w, p in wins.items() if w not in ('5h', '7d'))
+                parts.append(f'{label} {seg} {extra}'.strip())
+            terms.append('AGY ' + ' | '.join(parts))
         elif name == 'cursor':
             parts = []
             if d.get('included_used_percent') is not None:
@@ -494,7 +498,11 @@ def main(argv=None):
             if args.json:
                 print(json.dumps(result, separators=(',', ':'), ensure_ascii=False), flush=True)
             elif args.compact:
-                print(compact(result), flush=True)
+                if args.watch and sys.stdout.isatty():
+                    # Overwrite the single status line in place instead of scrolling.
+                    print('\r\x1b[2K' + compact(result), end='', flush=True)
+                else:
+                    print(compact(result), flush=True)
             else:
                 if args.watch and sys.stdout.isatty():
                     print('\x1b[2J\x1b[H', end='')
