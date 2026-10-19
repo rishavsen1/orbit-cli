@@ -51,23 +51,35 @@ class CursorCollectorTests(unittest.TestCase):
     def test_legacy_summary(self):
         data = {'membershipType': 'pro', 'billingCycleEnd': '2026-11-01T00:00:00Z',
                 'individualUsage': {'plan': {'enabled': True, 'used': 800,
-                                              'limit': 2000, 'autoPercentUsed': 22.5,
+                                              'limit': 2000, 'totalPercentUsed': 19.5,
+                                              'autoPercentUsed': 22.5,
                                               'apiPercentUsed': 45}}}
         parsed = c.parse_usage(data)
-        self.assertEqual(parsed['included_used_percent'], 40)
+        # included matches Cursor's totalPercentUsed ("included total usage"),
+        # not used/limit (800/2000 = 40).
+        self.assertEqual(parsed['included_used_percent'], 19.5)
+        self.assertEqual(parsed['cursor_models_percent'], 22.5)
         self.assertEqual(parsed['other_models_percent'], 45)
         self.assertEqual(parsed['quota_type'], 'billing_cycle')
 
-    def test_current_period_prefers_derived_total_spend(self):
+    def test_current_period_prefers_total_percent_used(self):
         data = {'billingCycleEnd': '1794000000000',
                 'planUsage': {'includedSpend': 1288, 'totalSpend': 1288, 'limit': 2000,
                               'totalPercentUsed': 3.7333, 'autoPercentUsed': 3.89,
                               'apiPercentUsed': 2.64}}
         parsed = c.parse_usage({}, data)
-        self.assertEqual(parsed['included_used_percent'], 64.4)
+        self.assertEqual(parsed['included_used_percent'], 3.73)
         self.assertEqual(parsed['cursor_models_percent'], 3.89)
         self.assertEqual(parsed['quota_type'], 'billing_cycle')
-        self.assertNotEqual(parsed['included_used_percent'], 3.73)
+        # used/limit (64.4) must not override the dashboard included %.
+        self.assertNotEqual(parsed['included_used_percent'], 64.4)
+
+    def test_included_falls_back_to_spend_ratio(self):
+        data = {'billingCycleEnd': '2026-11-01T00:00:00Z',
+                'individualUsage': {'plan': {'used': 800, 'limit': 2000,
+                                              'autoPercentUsed': 10}}}
+        parsed = c.parse_usage(data)
+        self.assertEqual(parsed['included_used_percent'], 40)
 
     def test_unknown_x_subscription_does_not_invent_quota(self):
         parsed = c.parse_usage({'membershipType': 'premium', 'weeklyUsage': {'remaining': 123}})
@@ -88,13 +100,15 @@ class CursorCollectorTests(unittest.TestCase):
             if path.endswith('/me'):
                 return {'id': 123, 'email': 'do-not-print@example.com'}
             if path.endswith('/get-current-period-usage'):
-                return {'planUsage': {'includedSpend': 300, 'limit': 2000, 'autoPercentUsed': 44}}
+                return {'planUsage': {'includedSpend': 300, 'limit': 2000,
+                                      'totalPercentUsed': 12.5, 'autoPercentUsed': 44}}
             raise AssertionError(path)
         with patch.object(c, '_credentials', return_value=('user_ABC::'+jwt(), 'test session')):
             with patch.object(c, '_request', side_effect=fake_request):
                 parsed = c.probe()
         self.assertEqual(parsed['status'], 'ok')
-        self.assertEqual(parsed['included_used_percent'], 15)
+        self.assertEqual(parsed['included_used_percent'], 12.5)
+        self.assertEqual(parsed['cursor_models_percent'], 44)
         self.assertEqual(len(calls), 3)
         self.assertNotIn('email', json.dumps(parsed))
         self.assertNotIn(jwt(), json.dumps(parsed))
@@ -116,13 +130,17 @@ class CursorCollectorTests(unittest.TestCase):
             c._request('https://evil.example/api/usage-summary', 'test')
 
     def test_render_and_compact(self):
-        x = c.parse_usage({'billingCycleEnd': '2026-11-01T00:00:00Z', 'individualUsage': {'plan': {'used': 1100, 'limit': 2000,
-                                                                                                 'autoPercentUsed': 50}}})
+        x = c.parse_usage({'billingCycleEnd': '2026-11-01T00:00:00Z',
+                           'individualUsage': {'plan': {'used': 1100, 'limit': 2000,
+                                                         'totalPercentUsed': 19.2,
+                                                         'autoPercentUsed': 38.4}}})
         x['session_source'] = 'Cursor app'
         snap = {'checked_at': '2026-10-17T00:00:00Z', 'providers': {'cursor': x}}
-        self.assertIn('55.0%', o.render(snap))
+        self.assertIn('19.2%', o.render(snap))
         self.assertIn('Cursor models', o.render(snap))
-        self.assertIn('55%', o.compact(snap))
+        self.assertIn('38.4%', o.render(snap))
+        # Compact: Auto/models usage first, then included total.
+        self.assertEqual(o.compact(snap), 'cursor 38% 19% included')
 
 
 if __name__ == '__main__':

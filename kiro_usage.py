@@ -99,17 +99,26 @@ class RpcClient:
         )
         def reader():
             # Limit response sizes, avoid retaining any raw stdout in memory once used.
-            for line in self.proc.stdout:
-                if len(line) > 1_000_000:
-                    continue
-                try:
-                    data = json.loads(line)
-                    if isinstance(data, dict):
-                        self.messages.put(data)
-                except (ValueError, TypeError):
-                    pass
-            self.messages.put(None)
-        threading.Thread(target=reader, daemon=True).start()
+            # Parent may close stdout during __exit__; treat that as a normal shutdown.
+            try:
+                stdout = self.proc.stdout
+                if stdout is None:
+                    return
+                for line in stdout:
+                    if len(line) > 1_000_000:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        if isinstance(data, dict):
+                            self.messages.put(data)
+                    except (ValueError, TypeError):
+                        pass
+            except (ValueError, OSError):
+                pass
+            finally:
+                self.messages.put(None)
+        self._reader = threading.Thread(target=reader, daemon=True)
+        self._reader.start()
         return self
 
     def __exit__(self, *_):
@@ -121,9 +130,21 @@ class RpcClient:
                 except subprocess.TimeoutExpired:
                     self.proc.kill()
                     self.proc.wait(timeout=1)
-            for stream in (self.proc.stdin, self.proc.stdout):
-                if stream:
-                    stream.close()
+            # Close stdin first so the child exits; join the reader before closing
+            # stdout so the thread does not race on a closed pipe.
+            if self.proc.stdin:
+                try:
+                    self.proc.stdin.close()
+                except OSError:
+                    pass
+            reader = getattr(self, "_reader", None)
+            if reader is not None:
+                reader.join(timeout=1.5)
+            if self.proc.stdout:
+                try:
+                    self.proc.stdout.close()
+                except OSError:
+                    pass
 
     def request(self, method, params):
         self.seq += 1

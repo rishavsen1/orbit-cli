@@ -55,8 +55,8 @@ class AntigravityTests(unittest.TestCase):
         self.assertTrue(compact.startswith('AGY '))   # AGY, not AG
         self.assertIn('Google', compact)              # Gemini pool labeled Google
         self.assertIn('Others', compact)              # Claude/GPT pool labeled Others
-        self.assertIn('Google 5h 18% 7d 74%', compact)   # 5h shown for Google
-        self.assertIn('Others 5h 4% 7d 47%', compact)    # 5h shown for Others
+        self.assertIn('Google 5h: 18% 7d: 74%', compact)   # 5h shown for Google
+        self.assertIn('Others 5h: 4% 7d: 47%', compact)    # 5h shown for Others
 
     def test_missing_fraction_is_not_zero_or_full(self):
         g = {'name': 'Gemini Models', 'buckets': [

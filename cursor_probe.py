@@ -192,13 +192,17 @@ def _request(path, cookie, *, body=None, timeout=8):
 def _percent_or_ratio(obj: dict | None):
     if not isinstance(obj, dict):
         return None
-    # Prefer derived ratio for total allowance, not backend totalPercentUsed;
-    # Cursor's fields may represent different internal measures.
+    # Prefer totalPercentUsed: it matches Cursor's "included total usage"
+    # display message. used/limit is a separate internal units ratio and often
+    # disagrees with what the dashboard shows (e.g. 86% vs 19%).
+    pct = _pct(obj.get('totalPercentUsed', obj.get('usedPercent')))
+    if pct is not None:
+        return pct
     used = _finite(obj.get('includedSpend', obj.get('used', obj.get('totalSpend'))))
     limit = _finite(obj.get('limit'))
     if used is not None and limit is not None and limit > 0:
         return _pct(100 * used / limit)
-    return _pct(obj.get('totalPercentUsed', obj.get('usedPercent')))
+    return None
 
 
 def parse_usage(summary, period=None):

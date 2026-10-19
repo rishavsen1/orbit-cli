@@ -46,9 +46,20 @@ class ParsingTests(unittest.TestCase):
         data = {'providers': {'claude': {'status': 'ok', 'five_hour': {'used_percent': 14}, 'weekly': {'used_percent': 85}},
                               'cursor': {'status': 'ok', 'authenticated': True}}}
         line = o.compact(data)
-        self.assertIn('5h 14%', line)
-        self.assertIn('7d 85%', line)
+        self.assertIn('5h: 14%', line)
+        self.assertIn('7d: 85%', line)
         self.assertIn('quota n/a', line)
+
+    def test_coalesce_keeps_last_good_on_429(self):
+        previous = {'providers': {'claude': {'status': 'ok', 'five_hour': {'used_percent': 14}, 'weekly': {'used_percent': 10}}}}
+        live = {'providers': {'claude': {'status': 'unavailable', 'error': 'Usage endpoint rate-limited (HTTP 429)'}}}
+        merged = o.coalesce_transient(previous, live)
+        self.assertEqual(merged['providers']['claude']['status'], 'stale')
+        self.assertEqual(merged['providers']['claude']['five_hour']['used_percent'], 14)
+        # Non-transient errors must not be coalesced.
+        live2 = {'providers': {'claude': {'status': 'unavailable', 'error': 'Claude Code OAuth credentials not readable.'}}}
+        merged2 = o.coalesce_transient(previous, live2)
+        self.assertEqual(merged2['providers']['claude']['status'], 'unavailable')
 
     def test_datetime_epoch(self):
         self.assertEqual(o.parse_dt(0).year, 1970)
